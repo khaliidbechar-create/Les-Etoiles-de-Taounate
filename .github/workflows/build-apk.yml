@@ -1,0 +1,77 @@
+name: Build Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Find and extract ZIP project
+        run: |
+          set -e
+          ZIP_FILE=$(find . -maxdepth 1 -type f -iname "*.zip" | head -n 1)
+
+          if [ -z "$ZIP_FILE" ]; then
+            echo "Aucun fichier ZIP trouvé."
+            exit 1
+          fi
+
+          echo "ZIP trouvé : $ZIP_FILE"
+          mkdir -p android-project
+          unzip -q "$ZIP_FILE" -d android-project
+
+          echo "Contenu du projet :"
+          find android-project -maxdepth 3 -type f | head -100
+
+      - name: Locate Android project
+        run: |
+          set -e
+
+          PROJECT_DIR=$(find android-project -name "gradlew" -type f | head -n 1 | xargs -r dirname)
+
+          if [ -z "$PROJECT_DIR" ]; then
+            echo "gradlew introuvable."
+            echo "Recherche des fichiers Gradle..."
+            find android-project -name "settings.gradle*" -o -name "build.gradle*"
+            exit 1
+          fi
+
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "Projet Android : $PROJECT_DIR"
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Accept Android licenses
+        run: yes | sdkmanager --licenses || true
+
+      - name: Build APK
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --stacktrace
+
+      - name: Find APK
+        run: |
+          echo "APK générée :"
+          find "$PROJECT_DIR" -type f -name "*.apk"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Les-Etoiles-de-Taounate-APK
+          path: "${{ env.PROJECT_DIR }}/**/build/outputs/apk/**/*.apk"
